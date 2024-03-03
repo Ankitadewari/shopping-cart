@@ -66,6 +66,22 @@ func CheckoutProduct(c *gin.Context) {
 
 }
 func returnProduct(c *gin.Context) {
+	name := c.Query("name")
+
+	if name == "" {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing product"})
+		return
+	}
+
+	for i, p := range cart {
+		if p.Name == name {
+			cart[i].Qty++
+			c.IndentedJSON(http.StatusOK, gin.H{"message": "Product exist, and qty increaded by 1"})
+			return
+		}
+	}
+
+	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not in cart"})
 
 }
 func addProduct(c *gin.Context) {
