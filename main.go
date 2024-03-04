@@ -5,13 +5,18 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 type Product struct {
+	gorm.Model
 	Name  string  `json:"name"`
 	Qty   int     `json:"qty"`
 	Price float32 `json:"price"`
 }
+
+var DB *gorm.DB
 
 var cart = []Product{
 	{Name: "Shirt", Qty: 2, Price: 200},
@@ -20,71 +25,82 @@ var cart = []Product{
 }
 
 func getcart(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, cart)
+	var products []Product
+	if err := DB.Find(&products).Error; err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": "Failed to fetch products"})
+		return
+	}
+
+	c.JSON(http.StatusOK, products)
+
 }
 
 func getproductByName(name string) (*Product, error) {
-	for i, p := range cart {
-		if p.Name == name {
-			return &cart[i], nil
+	var product Product
+
+	if err := DB.Where("name = ?", name).First(&product).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, errors.New("Product not found")
 		}
+		return nil, err
 	}
-	return nil, errors.New("Product not found")
+
+	return &product, nil
 }
 
 func productByName(c *gin.Context) {
 	name := c.Param("name")
-	Product, err := getproductByName(name)
+	var product Product
 
-	if err != nil {
+	if err := DB.Where("name = ?", name).First(&product).Error; err != nil {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not found"})
+		return
 	}
-	c.IndentedJSON(http.StatusOK, Product)
+
+	c.IndentedJSON(http.StatusOK, product)
 }
 
 func CheckoutProduct(c *gin.Context) {
-	name, ok := c.GetQuery("name")
+	name := c.Query("name")
+	var product Product
 
-	if !ok {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing Product"})
-		return
-	}
-	Product, err := getproductByName(name)
-
-	if err != nil {
+	if err := DB.Where("name = ?", name).First(&product).Error; err != nil {
 		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not found"})
 		return
 	}
 
-	if Product.Qty <= 0 || Product.Qty > 8 {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing Product"})
+	if product.Qty <= 0 || product.Qty > 8 {
+		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Invalid quantity"})
 		return
 	}
 
-	Product.Qty -= 1
-	c.IndentedJSON(http.StatusOK, Product)
+	product.Qty--
+	if err := DB.Save(&product).Error; err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": "Failed to checkout product"})
+		return
+	}
+
+	c.IndentedJSON(http.StatusOK, product)
 
 }
 func returnProduct(c *gin.Context) {
 	name := c.Query("name")
+	var product Product
 
-	if name == "" {
-		c.IndentedJSON(http.StatusBadRequest, gin.H{"message": "Missing product"})
+	if err := DB.Where("name = ?", name).First(&product).Error; err != nil {
+		c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not found"})
 		return
 	}
 
-	for i, p := range cart {
-		if p.Name == name {
-			cart[i].Qty++
-			c.IndentedJSON(http.StatusOK, gin.H{"message": "Product exist, and qty increaded by 1"})
-			return
-		}
+	product.Qty++
+	if err := DB.Save(&product).Error; err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, gin.H{"message": "Failed to return product"})
+		return
 	}
 
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not in cart"})
-	
+	c.IndentedJSON(http.StatusOK, gin.H{"message": "Product quantity increased by 1"})
+}
 
-}     
 func addProduct(c *gin.Context) {
 	var newproduct Product
 
@@ -102,6 +118,15 @@ func addProduct(c *gin.Context) {
 	c.IndentedJSON(http.StatusCreated, newproduct)
 }
 func main() {
+
+	dsn := "host=cornelius.db.elephantsql.com user=qzttriqe password=lcvShz27-sqGJUHBBn3WzuE1wTbPe3BH dbname=qzttriqe port=5432 sslmode=disable"
+	var err error
+	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	if err != nil {
+		panic("failed to connect database")
+	}
+	DB.AutoMigrate(&Product{})
+
 	router := gin.Default()
 	router.GET("/cart", getcart)
 	router.GET("/cart/:name", productByName)
