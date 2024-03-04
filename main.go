@@ -82,8 +82,9 @@ func returnProduct(c *gin.Context) {
 	}
 
 	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "Product not in cart"})
+	
 
-}
+}     
 func addProduct(c *gin.Context) {
 	var newproduct Product
 
